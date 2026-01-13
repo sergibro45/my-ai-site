@@ -1,7 +1,7 @@
 import os
 import base64
 from io import BytesIO
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Optional, Tuple
 
 import requests
 from fastapi import FastAPI, UploadFile, File, Form
@@ -10,9 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pypdf import PdfReader
 import docx
 from PIL import Image
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 TEXT_MODEL = os.getenv("TEXT_MODEL", "qwen2.5:7b-instruct")
@@ -27,42 +24,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory doc store + TF-IDF index (low memory)
+# Very light in-memory doc store (resets when Render sleeps)
 DOCS: List[Dict] = []  # {"source": str, "chunk": str}
-_vectorizer = TfidfVectorizer(stop_words="english")
-_matrix = None
 
 def chunk_text(text: str, max_chars: int = 1200) -> List[str]:
     text = text.replace("\r", "")
-    parts, buf, size = [], [], 0
-    for line in text.split("\n"):
+    chunks = []
+    buf = ""
+    for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
-        if size + len(line) + 1 > max_chars and buf:
-            parts.append("\n".join(buf))
-            buf, size = [], 0
-        buf.append(line)
-        size += len(line) + 1
-    if buf:
-        parts.append("\n".join(buf))
-    return parts
+        if len(buf) + len(line) + 1 > max_chars:
+            if buf.strip():
+                chunks.append(buf.strip())
+            buf = ""
+        buf += line + "\n"
+    if buf.strip():
+        chunks.append(buf.strip())
+    return chunks
 
-def rebuild_index():
-    global _matrix
-    if not DOCS:
-        _matrix = None
-        return
-    texts = [d["chunk"] for d in DOCS]
-    _matrix = _vectorizer.fit_transform(texts)
+def score_chunk(query_words: List[str], chunk: str) -> int:
+    t = chunk.lower()
+    return sum(t.count(w) for w in query_words)
 
 def retrieve(query: str, k: int = 6) -> List[Tuple[str, str]]:
-    if _matrix is None or not DOCS:
+    words = [w.lower() for w in query.split() if len(w) >= 3]
+    if not words or not DOCS:
         return []
-    qv = _vectorizer.transform([query])
-    sims = cosine_similarity(qv, _matrix)[0]
-    best = sims.argsort()[::-1][:k]
-    return [(DOCS[i]["chunk"], DOCS[i]["source"]) for i in best]
+    scored = []
+    for d in DOCS:
+        s = score_chunk(words, d["chunk"])
+        if s > 0:
+            scored.append((s, d["chunk"], d["source"]))
+    scored.sort(reverse=True)
+    return [(c, src) for _, c, src in scored[:k]]
 
 def ollama_generate(model: str, prompt: str, images_b64: Optional[List[str]] = None) -> str:
     payload = {"model": model, "prompt": prompt, "stream": False}
@@ -112,7 +108,6 @@ async def upload(file: UploadFile = File(...)):
     for c in chunks:
         DOCS.append({"source": file.filename or "upload", "chunk": c})
 
-    rebuild_index()
     return {"indexed_chunks": len(chunks), "filename": file.filename}
 
 @app.post("/chat")
