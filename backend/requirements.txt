@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+requests
+pydantic
+chromadb
+sentence-transformers
+pypdf
+python-docx
+Pillow
