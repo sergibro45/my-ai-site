@@ -111,6 +111,7 @@ button:hover{background:var(--btnHover)}
   padding:14px;
   border-top:1px solid var(--border);
   background:var(--panel2);
+  align-items:start;
 }
 
 textarea{
@@ -121,6 +122,29 @@ textarea{
   background:var(--input);
   border:1px solid var(--border);
   color:var(--text);
+}
+
+/* File input (boxy) */
+input[type="file"]{
+  width:100%;
+  border:1px solid var(--border);
+  background:var(--btn);
+  color:var(--text);
+  padding:8px;
+}
+
+/* Make file input span full width under textarea */
+.fileRow{
+  grid-column:1 / -1;
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:10px;
+  align-items:center;
+}
+
+.fileHint{
+  font-size:12px;
+  color:var(--muted);
 }
 
 .send{
@@ -157,8 +181,13 @@ textarea{
   </main>
 
   <div class="composer">
-    <textarea id="input" placeholder="Type a message…"></textarea>
+    <textarea id="input" placeholder="Type a message… (Enter = send, Shift+Enter = new line)"></textarea>
     <button class="send" id="sendBtn">Send</button>
+
+    <div class="fileRow">
+      <input type="file" id="fileInput" />
+      <div class="fileHint">Text files supported: .txt / .csv</div>
+    </div>
 
     <div class="footer">
       <div id="tabInfo"></div>
@@ -170,9 +199,10 @@ textarea{
 
 <script>
 /* -------- CONFIG -------- */
+// Put your BACKEND URL here (the FastAPI service)
 const BACKEND = "https://aisite-wims.onrender.com";
 
-/* -------- TAB MEMORY -------- */
+/* -------- TAB MEMORY (per tab) -------- */
 const TAB_KEY = "neochat_tab_id";
 let tabId = sessionStorage.getItem(TAB_KEY);
 if(!tabId){
@@ -196,6 +226,8 @@ document.getElementById("themeBtn").onclick = () => {
 /* -------- UI HELPERS -------- */
 const chat = document.getElementById("chat");
 const input = document.getElementById("input");
+const fileInput = document.getElementById("fileInput");
+const sendBtn = document.getElementById("sendBtn");
 
 function add(role, text){
   const d = document.createElement("div");
@@ -205,27 +237,61 @@ function add(role, text){
   chat.scrollTop = chat.scrollHeight;
 }
 
-/* -------- SEND -------- */
+/* -------- SEND (chat or chat-file) -------- */
 async function send(){
   const text = input.value.trim();
-  if(!text) return;
-  add("user", text);
+  const file = fileInput.files[0];
+
+  // need at least text or file
+  if(!text && !file) return;
+
+  if(text) add("user", text);
+  if(file) add("system", "Uploaded: " + file.name);
+
+  // disable send while loading
+  sendBtn.disabled = true;
+  sendBtn.textContent = "Sending...";
+
+  // clear input early
   input.value = "";
 
   const fd = new FormData();
   fd.append("tab_id", tabId);
-  fd.append("message_form", text);
+
+  let endpoint = "/chat";
+
+  if(file){
+    endpoint = "/chat-file";
+    fd.append("message_form", text || "Use the uploaded file");
+    fd.append("file", file);
+  }else{
+    fd.append("message_form", text);
+  }
 
   try{
-    const r = await fetch(BACKEND + "/chat", {method:"POST", body:fd});
-    const j = await r.json();
-    add("bot", j.answer || "No response");
+    const r = await fetch(BACKEND + endpoint, { method:"POST", body: fd });
+    const raw = await r.text();
+
+    if(!r.ok){
+      add("system", `Server error (${r.status}): ${raw}`);
+    } else {
+      let j;
+      try { j = JSON.parse(raw); } catch { j = { answer: raw }; }
+      add("bot", j.answer || "No response");
+    }
   }catch(e){
     add("system", "Error contacting server");
+  } finally {
+    // re-enable send
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Send";
+    // clear file selection so next send is normal unless they pick again
+    fileInput.value = "";
   }
 }
 
-document.getElementById("sendBtn").onclick = send;
+sendBtn.onclick = send;
+
 input.addEventListener("keydown", e=>{
   if(e.key==="Enter" && !e.shiftKey){
     e.preventDefault();
@@ -233,12 +299,13 @@ input.addEventListener("keydown", e=>{
   }
 });
 
-/* -------- MISC -------- */
+/* -------- CLEAR UI -------- */
 document.getElementById("clearBtn").onclick = ()=>{
   chat.innerHTML = "";
-  add("system","Cleared chat (tab memory still exists).");
+  add("system","Cleared chat (tab memory still exists server-side).");
 };
 
+/* -------- HEALTH -------- */
 document.getElementById("healthBtn").onclick = async ()=>{
   try{
     const r = await fetch(BACKEND + "/health");
