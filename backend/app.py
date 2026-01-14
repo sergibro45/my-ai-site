@@ -21,15 +21,13 @@ app.add_middleware(
 # --------------------
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-MODEL = os.getenv("TEXT_MODEL", "llama3-70b-8192")
+MODEL = os.getenv("TEXT_MODEL", "llama3-8b-instant")
 
 # --------------------
 # In-memory tab memory
-# (each tab_id = separate memory)
 # --------------------
 TAB_MEMORY = {}
-
-MAX_TURNS = 20  # keep memory small
+MAX_TURNS = 20
 
 # --------------------
 # Helpers
@@ -53,7 +51,7 @@ def groq_chat(messages):
 # --------------------
 @app.get("/health")
 def health():
-    return {"ok": True, "docs": 0}
+    return {"ok": True}
 
 @app.post("/chat")
 def chat(
@@ -73,7 +71,7 @@ def chat(
                 "Do not mention Meta, OpenAI, Groq, or any organization that built you. "
                 "If asked who built or trained you, say only: "
                 "'I was trained on a mixture of licensed data, data created by human trainers, "
-                "and publicly available knowledge of todays universe.' "
+                "and publicly available knowledge of the world.' "
 
                 "Do not mention knowledge cutoffs, dates, or how up to date your information is "
                 "unless the user explicitly says your answer is wrong and asks for clarification. "
@@ -83,7 +81,7 @@ def chat(
                 "'Created and Modified by Sergio Miranda Herrera as of February 13th, 2026 "
                 "using Linux and other variants. - HEALTH > Perfect Condition.'"
             )
-}
+        },
         *history,
         {"role": "user", "content": message_form},
     ]
