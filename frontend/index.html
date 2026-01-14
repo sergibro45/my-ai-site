@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>NeoChat</title>
+
+<style>
+:root{
+  --bg:#0b0d10;
+  --panel:#0f1318;
+  --panel2:#0c1015;
+  --text:#e8eef5;
+  --muted:#9aa7b5;
+  --border:rgba(255,255,255,.12);
+  --accent:#7c3aed;
+  --input:#0b0f14;
+  --btn:#141a22;
+  --btnHover:#1a2230;
+  --user:#101722;
+  --bot:#0f141b;
+}
+[data-theme="light"]{
+  --bg:#f6f7fb;
+  --panel:#ffffff;
+  --panel2:#fbfbfe;
+  --text:#0b1020;
+  --muted:#4a5568;
+  --border:rgba(0,0,0,.12);
+  --input:#ffffff;
+  --btn:#f3f4f6;
+  --btnHover:#e5e7eb;
+  --user:#eef2ff;
+  --bot:#f5f7fb;
+}
+
+*{box-sizing:border-box;border-radius:0 !important}
+
+body{
+  margin:0;
+  font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;
+  background:var(--bg);
+  color:var(--text);
+  height:100vh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+
+.app{
+  width:100%;
+  max-width:960px;
+  height:92vh;
+  border:1px solid var(--border);
+  display:grid;
+  grid-template-rows:auto 1fr auto;
+  background:var(--panel);
+}
+
+/* ---------- Header ---------- */
+header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px;
+  border-bottom:1px solid var(--border);
+  background:var(--panel2);
+}
+
+.brand{
+  font-weight:800;
+  letter-spacing:.4px;
+}
+
+.controls{
+  display:flex;
+  gap:8px;
+}
+
+button{
+  background:var(--btn);
+  border:1px solid var(--border);
+  color:var(--text);
+  padding:8px 12px;
+  cursor:pointer;
+}
+button:hover{background:var(--btnHover)}
+
+/* ---------- Chat ---------- */
+.main{
+  padding:14px;
+  overflow:auto;
+}
+
+.msg{
+  border:1px solid var(--border);
+  padding:10px;
+  margin-bottom:10px;
+  font-size:14px;
+  white-space:pre-wrap;
+}
+.msg.user{background:var(--user)}
+.msg.bot{background:var(--bot)}
+.msg.system{background:transparent;color:var(--muted)}
+
+/* ---------- Composer ---------- */
+.composer{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:10px;
+  padding:14px;
+  border-top:1px solid var(--border);
+  background:var(--panel2);
+}
+
+textarea{
+  width:100%;
+  min-height:44px;
+  resize:none;
+  padding:10px;
+  background:var(--input);
+  border:1px solid var(--border);
+  color:var(--text);
+}
+
+.send{
+  background:var(--accent);
+  color:white;
+  border:1px solid var(--accent);
+  font-weight:800;
+}
+
+.footer{
+  grid-column:1/-1;
+  margin-top:8px;
+  font-size:12px;
+  color:var(--muted);
+  display:flex;
+  justify-content:space-between;
+}
+.link{cursor:pointer;text-decoration:underline}
+</style>
+</head>
+
+<body>
+<div class="app">
+  <header>
+    <div class="brand">NeoChat</div>
+    <div class="controls">
+      <button id="themeBtn">Toggle Theme</button>
+      <button id="clearBtn">Clear</button>
+    </div>
+  </header>
+
+  <main class="main" id="chat">
+    <div class="msg system">NeoChat ready.</div>
+  </main>
+
+  <div class="composer">
+    <textarea id="input" placeholder="Type a message…"></textarea>
+    <button class="send" id="sendBtn">Send</button>
+
+    <div class="footer">
+      <div id="tabInfo"></div>
+      <div class="link" id="healthBtn">Check health</div>
+    </div>
+  </div>
+</div>
+</body>
+
+<script>
+/* -------- CONFIG -------- */
+const BACKEND = "https://aisite-wims.onrender.com";
+
+/* -------- TAB MEMORY -------- */
+const TAB_KEY = "neochat_tab_id";
+let tabId = sessionStorage.getItem(TAB_KEY);
+if(!tabId){
+  tabId = "tab_" + crypto.randomUUID();
+  sessionStorage.setItem(TAB_KEY, tabId);
+}
+document.getElementById("tabInfo").textContent = tabId;
+
+/* -------- THEME -------- */
+const THEME_KEY = "neochat_theme";
+const savedTheme = localStorage.getItem(THEME_KEY) || "dark";
+document.documentElement.setAttribute("data-theme", savedTheme);
+
+document.getElementById("themeBtn").onclick = () => {
+  const t = document.documentElement.getAttribute("data-theme");
+  const next = t === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem(THEME_KEY, next);
+};
+
+/* -------- UI HELPERS -------- */
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+
+function add(role, text){
+  const d = document.createElement("div");
+  d.className = `msg ${role}`;
+  d.textContent = text;
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+/* -------- SEND -------- */
+async function send(){
+  const text = input.value.trim();
+  if(!text) return;
+  add("user", text);
+  input.value = "";
+
+  const fd = new FormData();
+  fd.append("tab_id", tabId);
+  fd.append("message_form", text);
+
+  try{
+    const r = await fetch(BACKEND + "/chat", {method:"POST", body:fd});
+    const j = await r.json();
+    add("bot", j.answer || "No response");
+  }catch(e){
+    add("system", "Error contacting server");
+  }
+}
+
+document.getElementById("sendBtn").onclick = send;
+input.addEventListener("keydown", e=>{
+  if(e.key==="Enter" && !e.shiftKey){
+    e.preventDefault();
+    send();
+  }
+});
+
+/* -------- MISC -------- */
+document.getElementById("clearBtn").onclick = ()=>{
+  chat.innerHTML = "";
+  add("system","Cleared chat (tab memory still exists).");
+};
+
+document.getElementById("healthBtn").onclick = async ()=>{
+  try{
+    const r = await fetch(BACKEND + "/health");
+    add("system","Health: " + await r.text());
+  }catch{
+    add("system","Health check failed");
+  }
+};
+</script>
+</html>
