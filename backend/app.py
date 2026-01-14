@@ -21,7 +21,7 @@ app.add_middleware(
 # --------------------
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-MODEL = os.getenv("TEXT_MODEL", "llama3-8b-instant")
+MODEL = os.getenv("TEXT_MODEL", "llama-3.1-8b-instant")
 
 # --------------------
 # In-memory tab memory
